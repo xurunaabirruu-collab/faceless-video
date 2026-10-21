@@ -24,6 +24,7 @@ import requests
 SIZES = {"landscape": (1920, 1080), "vertical": (1080, 1920)}
 FPS = 30
 PEXELS_KEY = os.environ.get("PEXELS_API_KEY", "")
+PIXABAY_KEY = os.environ.get("PIXABAY_API_KEY", "")
 
 
 def run(cmd, cwd=None):
@@ -61,7 +62,35 @@ async def tts(text, voice, rate, out):
     await edge_tts.Communicate(text, voice, rate=rate).save(str(out))
 
 
+def fetch_pixabay(query, orientation, used, dest):
+    try:
+        r = requests.get(
+            "https://pixabay.com/api/",
+            params={"key": PIXABAY_KEY, "q": query, "image_type": "photo",
+                    "orientation": "horizontal" if orientation == "landscape" else "vertical",
+                    "per_page": 10, "safesearch": "true"},
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=30,
+        )
+        hits = [h for h in r.json().get("hits", []) if h["id"] not in used]
+        if not hits:
+            return None
+        h = random.choice(hits[:6])
+        used.add(h["id"])
+        dest.write_bytes(requests.get(h["largeImageURL"],
+                                      headers={"User-Agent": "Mozilla/5.0"},
+                                      timeout=60).content)
+        return dest
+    except Exception as e:
+        print(f"   (Pixabay: suuraan hin argamne: {e})")
+        return None
+
+
 def fetch_image(query, orientation, used, dest):
+    if PIXABAY_KEY and query:
+        img = fetch_pixabay(query, orientation, used, dest)
+        if img:
+            return img
     if not PEXELS_KEY or not query:
         return None
     try:
@@ -152,8 +181,8 @@ def main():
     scenes = parse_script(args.script)
     if not scenes:
         sys.exit("Script duwwaadha.")
-    if not PEXELS_KEY:
-        print("! PEXELS_API_KEY hin kaa'amne: suuraa osoo hin taane duubbee halluu fayyadama.\n")
+    if not (PIXABAY_KEY or PEXELS_KEY):
+        print("! PIXABAY_API_KEY hin kaa'amne: suuraa osoo hin taane duubbee halluu fayyadama.\n")
 
     used, clips = set(), []
     for i, (text, kw) in enumerate(scenes, 1):

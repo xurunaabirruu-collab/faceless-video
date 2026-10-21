@@ -14,6 +14,19 @@ st.set_page_config(page_title="Faceless Video Maker", page_icon="🎬", layout="
 st.title("🎬 Faceless Video Maker")
 st.caption("Script galchi → sagalee AI + suuraa + subtitle → video xumuramee")
 
+
+def secret(name, default=""):
+    try:
+        return st.secrets.get(name, os.environ.get(name, default))
+    except Exception:
+        return os.environ.get(name, default)
+
+
+_pw = secret("APP_PASSWORD")
+if _pw and st.text_input("Password", type="password") != _pw:
+    st.info("Password galchi.")
+    st.stop()
+
 SAMPLE = (HERE / "script.txt").read_text(encoding="utf-8") if (HERE / "script.txt").exists() else ""
 
 script = st.text_area(
@@ -29,8 +42,8 @@ voice = c2.selectbox("Sagalee", [
     "en-GB-RyanNeural", "en-GB-SoniaNeural", "am-ET-MekdesNeural",
 ])
 rate = st.select_slider("Saffisa sagalee", ["-20%", "-10%", "+0%", "+10%", "+20%"], value="+0%")
-key = st.text_input("Pexels API key (suuraaf, filannoo)",
-                    value=os.environ.get("PEXELS_API_KEY", ""), type="password")
+key = st.text_input("Pixabay API key (suuraaf, filannoo)",
+                    value=secret("PIXABAY_API_KEY"), type="password")
 music = st.file_uploader("Muuziqa duubaa (filannoo, mp3)", type=["mp3"])
 
 if st.button("🚀 Video uumi", type="primary", use_container_width=True):
@@ -46,7 +59,8 @@ if st.button("🚀 Video uumi", type="primary", use_container_width=True):
            "--format", fmt, "--voice", voice, "--rate", rate, "--out", "output.mp4"]
     if music is not None:
         (run_dir / "music.mp3").write_bytes(music.getvalue())
-    env = {**os.environ, "PEXELS_API_KEY": key.strip()}
+    env = {**os.environ, "PIXABAY_API_KEY": key.strip(),
+           "PEXELS_API_KEY": str(secret("PEXELS_API_KEY"))}
 
     with st.status("Video uumamaa jira... (daqiiqaa muraasa fudhata)", expanded=True) as status:
         log = st.empty()
