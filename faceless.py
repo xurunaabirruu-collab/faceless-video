@@ -168,7 +168,7 @@ def main():
     ap.add_argument("--format", choices=SIZES, default="landscape",
                     help="landscape = YouTube, vertical = TikTok/Shorts")
     ap.add_argument("--voice", default="en-US-GuyNeural")
-    ap.add_argument("--rate", default="+0%", help="saffisa sagalee, fkn -10% ykn +10%")
+    ap.add_argument("--rate", default="+0%", help="saffisa sagalee, fkn -10%% ykn +10%%")
     ap.add_argument("--music", default="music.mp3", help="muuziqa duubaa (filannoo)")
     ap.add_argument("--out", default="output.mp4")
     args = ap.parse_args()
