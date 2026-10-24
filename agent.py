@@ -8,7 +8,7 @@ import requests
 
 # provider: (model durtii, maqaa secret)
 PROVIDERS = {
-    "Gemini (bilisaan)": ("gemini-2.5-flash", "GEMINI_API_KEY"),
+    "Gemini (bilisaan)": ("gemini-3.8-flash", "GEMINI_API_KEY"),
     "Groq (bilisaan)": ("llama-3.3-70b-versatile", "GROQ_API_KEY"),
     "Claude (kaffaltii)": ("claude-haiku-5-5", "ANTHROPIC_API_KEY"),
 }
@@ -72,17 +72,46 @@ def _check(r):
     return r.json()
 
 
+def _gemini_post(key, model, system, user, timeout):
+    return requests.post(
+        f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+        headers={"x-goog-api-key": key, "Content-Type": "application/json"},
+        json={"systemInstruction": {"parts": [{"text": system}]},
+              "contents": [{"role": "user", "parts": [{"text": user}]}],
+              "generationConfig": {"temperature": 0.8}},
+        timeout=timeout)
+
+
+def _gemini_pick_model(key, timeout=30):
+    """Model 'gemini-X-flash' isa haaraa (generateContent deeggaru) barbaada."""
+    try:
+        r = requests.get("https://generativelanguage.googleapis.com/v1beta/models",
+                         headers={"x-goog-api-key": key},
+                         params={"pageSize": 200}, timeout=timeout)
+        if r.status_code != 200:
+            return None
+        best, best_v = None, -1.0
+        for m in r.json().get("models", []):
+            name = m.get("name", "").replace("models/", "")
+            mt = re.fullmatch(r"gemini-(\d+(?:\.\d+)?)-flash", name)
+            if mt and "generateContent" in m.get("supportedGenerationMethods", []):
+                v = float(mt.group(1))
+                if v > best_v:
+                    best, best_v = name, v
+        return best
+    except Exception:
+        return None
+
+
 def call_llm(provider, key, model, system, user, timeout=90):
     if not key:
         raise RuntimeError("API key hin galchine. Settings (AI Agent) keessatti key galchi.")
     if provider.startswith("Gemini"):
-        r = requests.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
-            headers={"x-goog-api-key": key, "Content-Type": "application/json"},
-            json={"systemInstruction": {"parts": [{"text": system}]},
-                  "contents": [{"role": "user", "parts": [{"text": user}]}],
-                  "generationConfig": {"temperature": 0.8}},
-            timeout=timeout)
+        r = _gemini_post(key, model, system, user, timeout)
+        if r.status_code == 404:  # model dhaabbateera: model haaraa ofumaan barbaadi
+            alt = _gemini_pick_model(key)
+            if alt and alt != model:
+                r = _gemini_post(key, alt, system, user, timeout)
         data = _check(r)
         try:
             return "".join(p.get("text", "") for p in data["candidates"][0]["content"]["parts"])
