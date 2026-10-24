@@ -111,6 +111,37 @@ if mode != MODE_AI:
     st.info("Suuraaf, sarara tokko tokko irratti `|` booda jecha **Ingiliffaa** barreessi "
             "(fkn `... | farmer field`). AI Agent kana ofumaan godha.")
 
+VIS_STOCK = "Suuraa stock (Pixabay; bilisaan)"
+VIS_AIIMG = "Suuraa AI (scene hundaaf AI uuma)"
+VIS_AIVID = "Video AI (clip sochii; credit fayyadama)"
+visuals = st.radio("Visual (suuraa / video)", [VIS_STOCK, VIS_AIIMG, VIS_AIVID])
+poll_key, video_model, clip_secs = "", "wan-fast", 5
+if visuals != VIS_STOCK:
+    poll_key = st.text_input("Pollinations API key", value=secret("POLLINATIONS_API_KEY"),
+                             type="password", help="Bilisaan galmaa'i: enter.pollinations.ai")
+    st.caption("Key argachuuf: **enter.pollinations.ai** galmaa'i. Credit (Pollen) dursa kennamu hanga "
+               "xumuramutti qofa hojjeta; booda kaffaltii barbaada.")
+if visuals == VIS_AIVID:
+    video_model = st.text_input("Model video", value="wan-fast",
+                                help="Filannoo: wan-fast, seedance, veo. Tarree: gen.pollinations.ai/video/models")
+    clip_secs = st.slider("Dheerina clip (sekondii)", 3, 8, 5)
+    st.warning("Video AI scene tokkoof daqiiqaa 0.5-2 fudhata. Scene 3-5 qofa fayyadami; "
+               "scene baay'ee yoo ta'e yeroon dheeraa fi credit hedduu xumurama.")
+
+STYLE_PRESETS = {
+    "Cinematic realistic": "cinematic, realistic, high detail, no text",
+    "3D explainer animation (science/medical)": "3D animated render, vibrant colors, macro shot, "
+                                                "shallow depth of field, educational explainer style, no text",
+    "Cartoon illustration": "colorful flat cartoon illustration, clean shapes, no text",
+}
+style_name = list(STYLE_PRESETS)[0]
+if visuals != VIS_STOCK:
+    style_name = st.selectbox("Bifa visual AI", list(STYLE_PRESETS))
+cut_secs = st.slider("Suuraa sekondii meeqa keessatti jijjiiramu (cut)", 2.0, 8.0, 3.5, 0.5,
+                     help="Xiqqaa ta'e = suuraan saffisaan jijjiirama (video explainer fakkaata). "
+                          "Video AI irratti xiqqaa ta'e credit hedduu fayyadama.")
+cap_words = st.slider("Subtitle tokko keessatti jechoota", 1, 4, 3)
+
 pix_key = st.text_input("Pixabay API key (suuraaf, filannoo)",
                         value=secret("PIXABAY_API_KEY"), type="password")
 music = st.file_uploader("Muuziqa duubaa (filannoo, mp3)", type=["mp3"])
@@ -157,6 +188,14 @@ if st.button("🚀 Video uumi", type="primary", use_container_width=True):
     cmd = [sys.executable, str(HERE / "faceless.py"), "script.txt",
            "--format", fmt, "--voice", ("none" if mode == MODE_SUB else voice),
            "--rate", rate, "--out", "output.mp4"]
+    cmd += ["--cut-seconds", str(cut_secs), "--caption-words", str(cap_words)]
+    if visuals != VIS_STOCK:
+        cmd += ["--style", STYLE_PRESETS[style_name]]
+    if visuals == VIS_AIIMG:
+        cmd += ["--visuals", "ai-image"]
+    elif visuals == VIS_AIVID:
+        cmd += ["--visuals", "ai-video", "--video-model", video_model.strip() or "wan-fast",
+                "--clip-seconds", str(clip_secs)]
     if mode == MODE_OWN:
         adir = run_dir / "audio"
         adir.mkdir()
@@ -166,6 +205,7 @@ if st.button("🚀 Video uumi", type="primary", use_container_width=True):
     if music is not None:
         (run_dir / "music.mp3").write_bytes(music.getvalue())
     env = {**os.environ, "PIXABAY_API_KEY": pix_key.strip(),
+           "POLLINATIONS_API_KEY": poll_key.strip(),
            "PEXELS_API_KEY": str(secret("PEXELS_API_KEY"))}
 
     with st.status("Video uumamaa jira... (daqiiqaa muraasa fudhata)", expanded=True) as status:

@@ -3,6 +3,7 @@ AI Agent: mata-duree (prompt) -> script scene-scene + jecha suuraa + Title/Descr
 Provider sadii: Gemini (bilisaan), Groq (bilisaan), Claude (kaffaltii).
 """
 import re
+import time
 
 import requests
 
@@ -49,11 +50,17 @@ The user's request may be written in any language (Afaan Oromoo, Amharic, Englis
 
 OUTPUT FORMAT (follow exactly, no commentary before or after):
 - Exactly {scenes} lines. One scene per line, in this format:
-  NARRATION | ENGLISH KEYWORDS
+  NARRATION | ENGLISH KEYWORDS | VISUAL PROMPT
 - NARRATION: 15 to 30 words, spoken style. No numbering, bullets, quotes, emojis or stage directions.
 - Scene 1 must be a strong hook. The last scene is a short call to action (like, follow, comment).
-- ENGLISH KEYWORDS: 2 or 3 concrete English words describing a visual for a stock photo search
-  (e.g. "volcano eruption", "old library"). Always English, always concrete, never abstract.
+- ENGLISH KEYWORDS: 2 or 3 DIFFERENT concrete English phrases separated by semicolons (each 2-3 words),
+  one per visual change inside the scene, for a stock photo search
+  (e.g. "volcano eruption; lava flow; ash cloud"). Always English, always concrete, never abstract.
+- VISUAL PROMPT: 2 or 3 DIFFERENT English descriptions separated by semicolons (6 to 12 words each),
+  one per visual change inside the scene, for an AI image/video generator (subject, setting, camera).
+  The visuals must change every 3 to 4 seconds like a fast explainer video. Keep one consistent visual
+  style across all scenes.
+  Never ask for text, words or logos inside the picture.
 - {lang_rule}
 - Only include facts you are confident are true. Skip anything uncertain.
 
@@ -82,36 +89,56 @@ def _gemini_post(key, model, system, user, timeout):
         timeout=timeout)
 
 
-def _gemini_pick_model(key, timeout=30):
-    """Model 'gemini-X-flash' isa haaraa (generateContent deeggaru) barbaada."""
+RETRY = (429, 500, 502, 503, 504)
+
+
+def _gemini_models(key, timeout=30):
+    """Model 'gemini-X-flash' (fi '-flash-lite') hunda, kan haaraa duraan tartiibsa."""
     try:
         r = requests.get("https://generativelanguage.googleapis.com/v1beta/models",
                          headers={"x-goog-api-key": key},
                          params={"pageSize": 200}, timeout=timeout)
         if r.status_code != 200:
-            return None
-        best, best_v = None, -1.0
+            return []
+        found = []
         for m in r.json().get("models", []):
             name = m.get("name", "").replace("models/", "")
-            mt = re.fullmatch(r"gemini-(\d+(?:\.\d+)?)-flash", name)
+            mt = re.fullmatch(r"gemini-(\d+(?:\.\d+)?)-flash(-lite)?", name)
             if mt and "generateContent" in m.get("supportedGenerationMethods", []):
-                v = float(mt.group(1))
-                if v > best_v:
-                    best, best_v = name, v
-        return best
+                found.append((-float(mt.group(1)), bool(mt.group(2)), name))
+        return [n for _, _, n in sorted(found)]
     except Exception:
-        return None
+        return []
+
+
+def _gemini_generate(key, model, system, user, timeout):
+    """Dogoggora yeroo (503/429) yoo ta'e al-lama yaala."""
+    r = None
+    for _ in range(2):
+        r = _gemini_post(key, model, system, user, timeout)
+        if r.status_code not in RETRY:
+            return r
+        time.sleep(3)
+    return r
 
 
 def call_llm(provider, key, model, system, user, timeout=90):
     if not key:
         raise RuntimeError("API key hin galchine. Settings (AI Agent) keessatti key galchi.")
     if provider.startswith("Gemini"):
-        r = _gemini_post(key, model, system, user, timeout)
-        if r.status_code == 404:  # model dhaabbateera: model haaraa ofumaan barbaadi
-            alt = _gemini_pick_model(key)
-            if alt and alt != model:
-                r = _gemini_post(key, alt, system, user, timeout)
+        r = _gemini_generate(key, model, system, user, timeout)
+        if r.status_code in RETRY or r.status_code == 404:
+            # model hin jiru ykn guyyaa kana hojjechuu didee: model biraa yaali (hanga 3)
+            tried = {model}
+            for alt in _gemini_models(key):
+                if alt in tried:
+                    continue
+                if len(tried) >= 3:
+                    break
+                tried.add(alt)
+                r = _gemini_generate(key, alt, system, user, timeout)
+                if r.status_code not in RETRY and r.status_code != 404:
+                    break
         data = _check(r)
         try:
             return "".join(p.get("text", "") for p in data["candidates"][0]["content"]["parts"])
@@ -150,8 +177,8 @@ def clean_script(raw):
         if not line or line.startswith("#"):
             continue
         if "|" in line:
-            text, kw = line.rsplit("|", 1)
-            line = f"{text.strip()} | {kw.strip()}"
+            parts = [p.strip() for p in line.split("|")]
+            line = " | ".join(p for p in parts[:3] if p)
         lines.append(line)
     return "\n".join(lines), meta
 
