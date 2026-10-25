@@ -2,6 +2,7 @@ import os
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 
 import streamlit as st
@@ -181,8 +182,8 @@ if st.button("🚀 Video uumi", type="primary", use_container_width=True):
             st.error(f"Scene {n_scenes} jira, garuu faayilii sagalee {len(audio_files)} upload goote.")
             st.stop()
 
-    run_dir = RUNS / time.strftime("%Y%m%d-%H%M%S")
-    run_dir.mkdir()
+    run_dir = RUNS / f"{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
+    run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "script.txt").write_text(final_script, encoding="utf-8")
 
     cmd = [sys.executable, str(HERE / "faceless.py"), "script.txt",
