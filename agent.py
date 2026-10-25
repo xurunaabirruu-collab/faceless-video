@@ -73,7 +73,20 @@ HASHTAGS: <8 to 12 hashtags separated by spaces>"""
     return system, user
 
 
+class _NetFail:
+    """requests dogoggora network/timeout: 599 godhee ilaalama."""
+    status_code = 599
+    text = ""
+
+    def __init__(self, err):
+        self.text = str(err)
+
+
 def _check(r):
+    if r.status_code == 599:
+        raise RuntimeError("Network ykn Google suuta (deebii hin dhufne): " + r.text[:160] +
+                           ". Daqiiqaa 1 booda irra deebi'ii yaali, ykn Model 'gemini-3.8-flash-lite' godhi, "
+                           "ykn Groq filadhu.")
     if r.status_code != 200:
         raise RuntimeError(f"API dogoggora {r.status_code}: {r.text[:300]}")
     return r.json()
@@ -89,7 +102,7 @@ def _gemini_post(key, model, system, user, timeout):
         timeout=timeout)
 
 
-RETRY = (429, 500, 502, 503, 504)
+RETRY = (429, 500, 502, 503, 504, 599)
 
 
 def _gemini_models(key, timeout=30):
@@ -112,10 +125,13 @@ def _gemini_models(key, timeout=30):
 
 
 def _gemini_generate(key, model, system, user, timeout):
-    """Dogoggora yeroo (503/429) yoo ta'e al-lama yaala."""
+    """Dogoggora yeroo (503/429) yoo ta'e al-lama yaala. Timeout yoo ta'e model biraatti darbi."""
     r = None
     for _ in range(2):
-        r = _gemini_post(key, model, system, user, timeout)
+        try:
+            r = _gemini_post(key, model, system, user, timeout)
+        except requests.exceptions.RequestException as e:
+            return _NetFail(e)
         if r.status_code not in RETRY:
             return r
         time.sleep(3)
@@ -126,7 +142,7 @@ def call_llm(provider, key, model, system, user, timeout=90):
     if not key:
         raise RuntimeError("API key hin galchine. Settings (AI Agent) keessatti key galchi.")
     if provider.startswith("Gemini"):
-        r = _gemini_generate(key, model, system, user, timeout)
+        r = _gemini_generate(key, model, system, user, min(timeout, 60))
         if r.status_code in RETRY or r.status_code == 404:
             # model hin jiru ykn guyyaa kana hojjechuu didee: model biraa yaali (hanga 3)
             tried = {model}
@@ -136,7 +152,7 @@ def call_llm(provider, key, model, system, user, timeout=90):
                 if len(tried) >= 3:
                     break
                 tried.add(alt)
-                r = _gemini_generate(key, alt, system, user, timeout)
+                r = _gemini_generate(key, alt, system, user, min(timeout, 60))
                 if r.status_code not in RETRY and r.status_code != 404:
                     break
         data = _check(r)
