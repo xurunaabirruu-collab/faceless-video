@@ -98,6 +98,18 @@ def words_from_boundaries(bounds, text):
     return words or None
 
 
+def trim_tail(path):
+    """Callee (silence) dhuma sagalee AI irraa haqa; yeroo jecha hin jijjiirru."""
+    tmp = path.with_name(path.stem + "_t.mp3")
+    run(["ffmpeg", "-y", "-i", str(path), "-af",
+         "areverse,silenceremove=start_periods=1:start_threshold=-50dB,areverse",
+         "-c:a", "libmp3lame", str(tmp)])
+    if audio_duration(tmp) >= 0.5:
+        tmp.replace(path)
+    else:
+        tmp.unlink()
+
+
 def make_audio(text, args, src, dest):
     """src = faayilii sagalee kee (yoo jiraate); voice 'none' = sagalee malee, subtitle qofa."""
     if src:
@@ -109,6 +121,7 @@ def make_audio(text, args, src, dest):
              "-t", f"{secs:.2f}", "-c:a", "libmp3lame", str(dest)])
     else:
         bounds = asyncio.run(tts(text, args.voice, args.rate, dest))
+        trim_tail(dest)
         return words_from_boundaries(bounds, text)
     return None
 
@@ -119,14 +132,22 @@ def fetch_pixabay(query, orientation, used, dest):
             "https://pixabay.com/api/",
             params={"key": PIXABAY_KEY, "q": query, "image_type": "photo",
                     "orientation": "horizontal" if orientation == "landscape" else "vertical",
-                    "per_page": 10, "safesearch": "true"},
+                    "per_page": 20, "safesearch": "true"},
             headers={"User-Agent": "Mozilla/5.0"},
             timeout=30,
         )
         hits = [h for h in r.json().get("hits", []) if h["id"] not in used]
         if not hits:
             return None
-        h = random.choice(hits[:6])
+        qw = {w for w in re.findall(r"[a-z]{3,}", query.lower())}
+
+        def score(hit):
+            tags = hit.get("tags", "").lower()
+            return sum(1 for w in qw if w in tags)
+
+        best = max(score(x) for x in hits)
+        pool = [x for x in hits if score(x) == best][:4]
+        h = random.choice(pool)
         used.add(h["id"])
         dest.write_bytes(requests.get(h["largeImageURL"],
                                       headers={"User-Agent": "Mozilla/5.0"},
@@ -217,7 +238,7 @@ def ts(t):
     return f"{h:02}:{m:02}:{s:02},{ms:03}"
 
 
-TAIL = 0.35  # callee dhuma scene
+TAIL = 0.2  # callee dhuma scene (gabaabaa; sagalee ofii callee qaba)
 
 
 def make_srt(text, dur, path, words=None, per=3):
@@ -379,15 +400,18 @@ def main():
 
     out = Path(args.out).resolve()
     music = Path(args.music)
+    LOUD = "loudnorm=I=-14:TP=-1.5:LRA=11"
     if music.exists():
         print("Muuziqa duubaa dabalaa jira...")
         run(["ffmpeg", "-y", "-i", str(work / "joined.mp4"), "-stream_loop", "-1",
              "-i", str(music), "-filter_complex",
-             "[1:a]volume=0.08[m];[0:a][m]amix=inputs=2:duration=first[a]",
-             "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac",
+             f"[1:a]volume=0.08[m];[0:a][m]amix=inputs=2:duration=first[a0];[a0]{LOUD}[a]",
+             "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "160k",
              "-shortest", str(out)])
     else:
-        (work / "joined.mp4").replace(out)
+        print("Sagalee sirreessaa jira (loudness)...")
+        run(["ffmpeg", "-y", "-i", str(work / "joined.mp4"), "-c:v", "copy",
+             "-af", LOUD, "-c:a", "aac", "-b:a", "160k", str(out)])
 
     print(f"\nXumurameera: {out}")
 
