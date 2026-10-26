@@ -27,6 +27,7 @@ FPS = 30
 PEXELS_KEY = os.environ.get("PEXELS_API_KEY", "")
 PIXABAY_KEY = os.environ.get("PIXABAY_API_KEY", "")
 POLL_KEY = os.environ.get("POLLINATIONS_API_KEY", "")
+STATS = {"ai_total": 0, "ai_fail": 0, "vid_total": 0, "vid_fail": 0, "err": ""}
 
 
 def run(cmd, cwd=None):
@@ -204,9 +205,11 @@ def ai_image(prompt, size, dest):
                 and len(r.content) > 1000:
             dest.write_bytes(r.content)
             return dest
-        print(f"   (AI suuraa: {r.status_code} {r.text[:120]})")
+        STATS["err"] = f"AI suuraa {r.status_code}: {r.text[:140]}"
+        print(f"   ({STATS['err']})")
     except Exception as e:
-        print(f"   (AI suuraa dogoggora: {e})")
+        STATS["err"] = f"AI suuraa dogoggora: {e}"
+        print(f"   ({STATS['err']})")
     return None
 
 
@@ -220,13 +223,15 @@ def ai_video(prompt, size, dest, model, seconds):
             r = requests.get(f"https://gen.pollinations.ai/video/{quote(prompt)}",
                              params=params, headers=_poll_headers(), timeout=420)
         except Exception as e:
-            print(f"   (AI video dogoggora: {e})")
+            STATS["err"] = f"AI video dogoggora: {e}"
+            print(f"   ({STATS['err']})")
             return None
         if r.status_code == 200 and (r.headers.get("content-type", "").startswith("video")
                                      or r.content[4:8] == b"ftyp"):
             dest.write_bytes(r.content)
             return dest
-        print(f"   (AI video: {r.status_code} {r.text[:120]})")
+        STATS["err"] = f"AI video {r.status_code}: {r.text[:140]}"
+        print(f"   ({STATS['err']})")
     return None
 
 
@@ -273,13 +278,17 @@ def pick_media(args, size, orientation, work, i, k, kw, vp, used):
     """Segment tokkoof (gosa, faayilii) deebisa: clip AI, suuraa AI, suuraa stock, ykn halluu."""
     full = f"{vp}, {args.style}" if args.style else vp
     if args.visuals == "ai-video":
+        STATS["vid_total"] += 1
         p = ai_video(full, size, work / f"m{i:03}_{k}.mp4", args.video_model, args.clip_seconds)
         if p:
             return ("clip", p)
+        STATS["vid_fail"] += 1
     if args.visuals in ("ai-video", "ai-image"):
+        STATS["ai_total"] += 1
         p = ai_image(full, size, work / f"m{i:03}_{k}.jpg")
         if p:
             return ("img", p)
+        STATS["ai_fail"] += 1
     p = fetch_image(kw, orientation, used, work / f"m{i:03}_{k}.jpg")
     if p:
         return ("img", p)
@@ -413,6 +422,12 @@ def main():
         run(["ffmpeg", "-y", "-i", str(work / "joined.mp4"), "-c:v", "copy",
              "-af", LOUD, "-c:a", "aac", "-b:a", "160k", str(out)])
 
+    if STATS["ai_fail"]:
+        print(f"⚠ Suuraa AI {STATS['ai_fail']}/{STATS['ai_total']} dhabame; suuraa stock fayyadame. "
+              f"Sababni: {STATS['err'] or 'hin beekamu'}")
+    if STATS["vid_fail"]:
+        print(f"⚠ Video AI {STATS['vid_fail']}/{STATS['vid_total']} dhabame; suuraa AI/stock fayyadame. "
+              f"Sababni: {STATS['err'] or 'hin beekamu'}")
     print(f"\nXumurameera: {out}")
 
 

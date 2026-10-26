@@ -223,6 +223,9 @@ if st.button("🚀 Video uumi", type="primary", use_container_width=True):
         else:
             status.update(label="Dogoggora uumame ❌", state="error")
 
+    for w in [l for l in lines if l.startswith("⚠")]:
+        st.warning(w)
+
     out = run_dir / "output.mp4"
     if out.exists():
         st.video(str(out))
