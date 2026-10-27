@@ -6,7 +6,9 @@ import time
 import uuid
 from pathlib import Path
 
+import requests
 import streamlit as st
+from urllib.parse import quote
 
 import agent
 import store
@@ -127,6 +129,22 @@ poll_key, video_model, clip_secs = "", "wan-fast", 5
 if visuals != VIS_STOCK:
     poll_key = st.text_input("Pollinations API key", value=secret("POLLINATIONS_API_KEY"),
                              type="password", help="Bilisaan galmaa'i: enter.pollinations.ai")
+    if st.button("🧪 AI suuraa yaali (key fi credit mirkaneessuuf)"):
+        try:
+            hdr = {"User-Agent": "Mozilla/5.0"}
+            if poll_key.strip():
+                hdr["Authorization"] = f"Bearer {poll_key.strip()}"
+            r = requests.get("https://gen.pollinations.ai/image/" +
+                             quote("friendly 3D animated character, Pixar style, smiling, studio lighting"),
+                             params={"model": "flux", "width": 512, "height": 512, "nologo": "true"},
+                             headers=hdr, timeout=120)
+            if r.status_code == 200 and r.headers.get("content-type", "").startswith("image"):
+                st.image(r.content, width=256)
+                st.success("AI suuraa hojjeta ✅ (key fi credit sirrii dha)")
+            else:
+                st.error(f"AI suuraa hin hojjenne ❌  {r.status_code}: {r.text[:300]}")
+        except Exception as e:
+            st.error(f"AI suuraa dogoggora: {e}")
     st.caption("Key argachuuf: **enter.pollinations.ai** galmaa'i. Credit (Pollen) dursa kennamu hanga "
                "xumuramutti qofa hojjeta; booda kaffaltii barbaada.")
 if visuals == VIS_AIVID:
