@@ -1,3 +1,4 @@
 edge-tts
 requests
 streamlit
+huggingface_hub

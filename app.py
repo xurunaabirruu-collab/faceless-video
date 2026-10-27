@@ -62,6 +62,11 @@ def gen_script_cb():
         ss["agent_err"] = str(e)
 
 
+@st.cache_data(ttl=120, show_spinner=False)
+def cloud_history(token):
+    return store.hf_history(token)
+
+
 # ---------- 1. Script ykn mata-duree ----------
 st.text_area(
     "1) Mata-duree / prompt (AI barreessa) ykn script guutuu (sarara tokko = scene tokko; `barreeffama | jecha suuraa`)",
@@ -157,7 +162,17 @@ pix_key = st.text_input("Pixabay API key (suuraaf, filannoo)",
                         value=secret("PIXABAY_API_KEY"), type="password")
 music = st.file_uploader("Muuziqa duubaa (filannoo, mp3)", type=["mp3"])
 
-with st.expander("📨 Telegram backup (history dhaabbataa)", expanded=False):
+with st.expander("☁️ Kuusaa dhaabbataa: Hugging Face (gorsa koo)", expanded=False):
+    st.checkbox("Video hunda ofumaan olkaa'i (history dhaabbataa)",
+                value=bool(secret("HF_TOKEN")), key="hf_on")
+    st.text_input("Hugging Face token (Write)", value=str(secret("HF_TOKEN")), type="password", key="hf_token")
+    st.caption("1) **huggingface.co** irratti galmaa'i (bilisaan). 2) Settings → **Access Tokens** → "
+               "**Create new token** → gosa **Write** → kopii godhi. 3) Asitti paste godhi, "
+               "ykn Streamlit Secrets keessatti `HF_TOKEN = \"hf_...\"` kaa'i (dhaabbataa). "
+               "Video, script, Title/Description/Hashtags **dataset dhuunfaa** kee keessatti kuufama; "
+               "app rafuus hin haqamu.")
+
+with st.expander("📨 Telegram backup (filannoo)", expanded=False):
     st.checkbox("Video xumuramee booda Telegram'tti ofumaan ergi",
                 value=bool(secret("TELEGRAM_BOT_TOKEN")), key="tg_on")
     st.text_input("Bot token", value=str(secret("TELEGRAM_BOT_TOKEN")), type="password", key="tg_token")
@@ -279,6 +294,14 @@ if st.button("🚀 Video uumi", type="primary", use_container_width=True):
         st.download_button("⬇️ Video buusi (MP4)", out.read_bytes(),
                            file_name="video.mp4", mime="video/mp4",
                            use_container_width=True)
+        if ss.get("hf_on") and ss.get("hf_token", "").strip():
+            with st.spinner("Hugging Face'tti olkaa'aa jira (dhaabbataa)..."):
+                try:
+                    repo = store.hf_save(ss["hf_token"].strip(), run_dir)
+                    cloud_history.clear()
+                    st.success(f"☁️ Kuufameera: huggingface.co/datasets/{repo} (dhuunfaa)")
+                except Exception as e:
+                    st.warning(f"Hugging Face dogoggora: {e}")
         if ss.get("tg_on") and ss.get("tg_token", "").strip() and ss.get("tg_chat", "").strip():
             with st.spinner("Telegram'tti ergaa jira..."):
                 tg_send(out, store.title_from(meta_text, final_script), final_script, meta_text)
@@ -288,21 +311,41 @@ if st.button("🚀 Video uumi", type="primary", use_container_width=True):
 # ---------- 4. History ----------
 st.divider()
 st.subheader("📚 History (video durii)")
-hist = store.load_history(RUNS)
+local = store.load_history(RUNS)
+cloud, cloud_err = [], ""
+if ss.get("hf_token", "").strip():
+    try:
+        cloud = cloud_history(ss["hf_token"].strip())
+    except Exception as e:
+        cloud_err = str(e)
+if cloud_err:
+    st.warning(f"Hugging Face history hin dubbifamne: {cloud_err[:200]}")
+cloud_ids = {d["id"] for d in cloud}
+merged = {d["id"]: d for d in cloud}
+for d in local:
+    merged[d["id"]] = {**merged.get(d["id"], {}), **d}
+hist = sorted(merged.values(), key=lambda d: d["id"], reverse=True)
 if not hist:
-    st.caption("Video uumtee booda asitti kuufama. Yaadannoo: app yeroo rafu/haaromfamu faayiloonni asii "
-               "haqamuu danda'u. Dhaabbataa ta'uuf Telegram backup (olitti) fayyadami.")
+    st.caption("Video uumtee booda asitti kuufama. Dhaabbataa ta'uuf olitti Hugging Face token galchi "
+               "(app rafu/haaromfamu irratti faayiloonni asii haqamuu danda'u).")
 else:
-    labels = {d["id"]: f'{d.get("created", "")} · {d.get("title", "")[:55]}' for d in hist}
+    labels = {d["id"]: f'{"☁️ " if d["id"] in cloud_ids else ""}{d.get("created", "")} · '
+                       f'{d.get("title", "")[:50]}' for d in hist}
     pick = st.selectbox("Video filadhu", list(labels), format_func=lambda k: labels[k], key="hist_pick")
     d = next(x for x in hist if x["id"] == pick)
     vid = RUNS / pick / "output.mp4"
+    if not vid.exists() and pick in cloud_ids and d.get("has_video"):
+        with st.spinner("Hugging Face irraa buusaa jira..."):
+            try:
+                vid = Path(store.hf_video_path(ss["hf_token"].strip(), pick))
+            except Exception as e:
+                st.warning(f"Video hin buufamne: {e}")
     if vid.exists():
         st.video(str(vid))
         st.download_button("⬇️ Video kana buusi", vid.read_bytes(), file_name=f"{pick}.mp4",
                            mime="video/mp4", use_container_width=True, key="hist_dl")
     else:
-        st.caption("Video kun hin jiru (haqameera).")
+        st.caption("Video kun hin jiru.")
     if d.get("meta"):
         st.code(d["meta"], language=None)
     with st.expander("📝 Script"):
@@ -318,7 +361,13 @@ else:
         if ss.get("tg_token", "").strip() and ss.get("tg_chat", "").strip():
             tg_send(vid, d.get("title", ""), d.get("script", ""), d.get("meta", ""))
         else:
-            st.warning("Telegram token fi Chat ID olitti galchi.")
+            st.warning("Telegram token fi Chat ID galchi.")
     if c3.button("🗑 Haqi", use_container_width=True, key="hist_del"):
         shutil.rmtree(RUNS / pick, ignore_errors=True)
+        if pick in cloud_ids:
+            try:
+                store.hf_delete(ss["hf_token"].strip(), pick)
+            except Exception as e:
+                st.warning(f"Hugging Face irraa hin haqamne: {e}")
+            cloud_history.clear()
         st.rerun()
