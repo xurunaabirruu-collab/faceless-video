@@ -276,7 +276,7 @@ def make_srt(text, dur, path, words=None, per=3):
 
 def pick_media(args, size, orientation, work, i, k, kw, vp, used):
     """Segment tokkoof (gosa, faayilii) deebisa: clip AI, suuraa AI, suuraa stock, ykn halluu."""
-    full = f"{vp}, {args.style}" if args.style else vp
+    full = ", ".join(x for x in (args.character, vp, args.style) if x)
     if args.visuals == "ai-video":
         STATS["vid_total"] += 1
         p = ai_video(full, size, work / f"m{i:03}_{k}.mp4", args.video_model, args.clip_seconds)
@@ -317,10 +317,18 @@ def render_scene(idx, segments, audio, speech_dur, size, work):
                           f"crop={W}:{H},setsar=1,fps={FPS},trim=duration={seg:.3f},"
                           f"setpts=PTS-STARTPTS[v{k}]")
         elif kind == "img":
-            z = "min(1.3,1+0.0012*on)" if k % 2 == 0 else "max(1.0,1.3-0.0012*on)"
+            m = k % 4  # sochii camera: zoom-in, zoom-out, pan mirga, pan bitaa
+            if m == 0:
+                z, x = "min(1.3,1+0.0012*on)", "iw/2-(iw/zoom/2)"
+            elif m == 1:
+                z, x = "max(1.0,1.3-0.0012*on)", "iw/2-(iw/zoom/2)"
+            elif m == 2:
+                z, x = "1.25", f"(iw-iw/zoom)*min(on/{frames},1)"
+            else:
+                z, x = "1.25", f"(iw-iw/zoom)*(1-min(on/{frames},1))"
             inputs += ["-i", path.name]
             chains.append(f"[{k}:v]scale={2*W}:{2*H}:force_original_aspect_ratio=increase,"
-                          f"crop={2*W}:{2*H},zoompan=z='{z}':x='iw/2-(iw/zoom/2)'"
+                          f"crop={2*W}:{2*H},zoompan=z='{z}':x='{x}'"
                           f":y='ih/2-(ih/zoom/2)':d={frames}:s={W}x{H}:fps={FPS},setsar=1[v{k}]")
         else:
             inputs += ["-f", "lavfi", "-i", f"color=c=0x16213e:s={W}x{H}:r={FPS}:d={seg:.3f}"]
@@ -356,6 +364,8 @@ def main():
                     help="suuraa/clip sekondii meeqa keessatti jijjiiramu (0 = scene tokkoof suuraa tokko)")
     ap.add_argument("--caption-words", type=int, default=3,
                     help="subtitle tokko keessatti jechoota hamma meeqa (1-4)")
+    ap.add_argument("--character", default="",
+                    help="bifa dhaabbataa (character) AI prompt hundatti dabalama")
     ap.add_argument("--audio-dir", default=None,
                     help="folder sagalee kee (01.mp3, 02.mp3 ... scene tokkoon tokko)")
     ap.add_argument("--music", default="music.mp3", help="muuziqa duubaa (filannoo)")

@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -8,6 +9,7 @@ from pathlib import Path
 import streamlit as st
 
 import agent
+import store
 
 HERE = Path(__file__).parent.resolve()
 RUNS = HERE / "runs"
@@ -133,11 +135,19 @@ STYLE_PRESETS = {
     "Cinematic realistic": "cinematic, realistic, high detail, no text",
     "3D explainer animation (science/medical)": "3D animated render, vibrant colors, macro shot, "
                                                 "shallow depth of field, educational explainer style, no text",
+    "3D animated character (Pixar-like)": "stylized 3D animated character render, Pixar-like, big expressive "
+                                         "eyes, smooth shading, vibrant colors, cinematic lighting, "
+                                         "dynamic camera angle, no text",
     "Cartoon illustration": "colorful flat cartoon illustration, clean shapes, no text",
 }
 style_name = list(STYLE_PRESETS)[0]
 if visuals != VIS_STOCK:
     style_name = st.selectbox("Bifa visual AI", list(STYLE_PRESETS))
+character = ""
+if visuals != VIS_STOCK:
+    character = st.text_input("Character dhaabbataa (filannoo)", value="",
+                              help="Scene hunda irratti character tokkicha akka fakkaatu: fkn "
+                                   "'young man with messy brown hair, grey sweater'. Ingiliffaan barreessi.")
 cut_secs = st.slider("Suuraa sekondii meeqa keessatti jijjiiramu (cut)", 2.0, 8.0, 3.5, 0.5,
                      help="Xiqqaa ta'e = suuraan saffisaan jijjiirama (video explainer fakkaata). "
                           "Video AI irratti xiqqaa ta'e credit hedduu fayyadama.")
@@ -146,6 +156,38 @@ cap_words = st.slider("Subtitle tokko keessatti jechoota", 1, 4, 3)
 pix_key = st.text_input("Pixabay API key (suuraaf, filannoo)",
                         value=secret("PIXABAY_API_KEY"), type="password")
 music = st.file_uploader("Muuziqa duubaa (filannoo, mp3)", type=["mp3"])
+
+with st.expander("📨 Telegram backup (history dhaabbataa)", expanded=False):
+    st.checkbox("Video xumuramee booda Telegram'tti ofumaan ergi",
+                value=bool(secret("TELEGRAM_BOT_TOKEN")), key="tg_on")
+    st.text_input("Bot token", value=str(secret("TELEGRAM_BOT_TOKEN")), type="password", key="tg_token")
+    st.text_input("Chat ID", value=str(secret("TELEGRAM_CHAT_ID")), key="tg_chat")
+    st.caption("1) Telegram keessatti **@BotFather** banii `/newbot` ergi, token kenna. "
+               "2) Bot kee banii **/start** ergi. 3) Asitti **Chat ID argadhu** cuqaasi. "
+               "Token fi Chat ID Streamlit Secrets keessatti `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` "
+               "jedhee kaa'uu dandeessa (dhaabbataa).")
+    if st.button("🔍 Chat ID argadhu"):
+        try:
+            chats, err = store.tg_find_chats(ss["tg_token"].strip())
+            if err:
+                st.error(err)
+            elif chats:
+                st.success("Chat ID kee: " + ", ".join(f"{k} ({v})" for k, v in chats.items()))
+            else:
+                st.warning("Duraan bot kee irratti /start ergi, itti aansuun deebi'ii yaali.")
+        except Exception as e:
+            st.error(str(e))
+
+
+def tg_send(out_path, title, script, meta):
+    try:
+        res = store.tg_backup(ss["tg_token"].strip(), ss["tg_chat"].strip(), out_path, title, script, meta)
+        for name, ok, detail in res:
+            (st.success if ok else st.warning)(
+                f"Telegram: {name} " + ("ergameera ✅" if ok else f"hin ergamne: {detail}"))
+    except Exception as e:
+        st.warning(f"Telegram dogoggora: {e}")
+
 
 # ---------- 3. Video uumi ----------
 if st.button("🚀 Video uumi", type="primary", use_container_width=True):
@@ -192,6 +234,8 @@ if st.button("🚀 Video uumi", type="primary", use_container_width=True):
     cmd += ["--cut-seconds", str(cut_secs), "--caption-words", str(cap_words)]
     if visuals != VIS_STOCK:
         cmd += ["--style", STYLE_PRESETS[style_name]]
+        if character.strip():
+            cmd += ["--character", character.strip()]
     if visuals == VIS_AIIMG:
         cmd += ["--visuals", "ai-image"]
     elif visuals == VIS_AIVID:
@@ -228,9 +272,53 @@ if st.button("🚀 Video uumi", type="primary", use_container_width=True):
 
     out = run_dir / "output.mp4"
     if out.exists():
+        meta_text = ss.get("meta", "")
+        store.save_meta(run_dir, final_script, meta_text, format=fmt, visuals=visuals, voice_mode=mode)
+        store.cleanup(RUNS)
         st.video(str(out))
         st.download_button("⬇️ Video buusi (MP4)", out.read_bytes(),
                            file_name="video.mp4", mime="video/mp4",
                            use_container_width=True)
+        if ss.get("tg_on") and ss.get("tg_token", "").strip() and ss.get("tg_chat", "").strip():
+            with st.spinner("Telegram'tti ergaa jira..."):
+                tg_send(out, store.title_from(meta_text, final_script), final_script, meta_text)
     else:
         st.error("Video hin uumamne. Ergaa olii ilaali.")
+
+# ---------- 4. History ----------
+st.divider()
+st.subheader("📚 History (video durii)")
+hist = store.load_history(RUNS)
+if not hist:
+    st.caption("Video uumtee booda asitti kuufama. Yaadannoo: app yeroo rafu/haaromfamu faayiloonni asii "
+               "haqamuu danda'u. Dhaabbataa ta'uuf Telegram backup (olitti) fayyadami.")
+else:
+    labels = {d["id"]: f'{d.get("created", "")} · {d.get("title", "")[:55]}' for d in hist}
+    pick = st.selectbox("Video filadhu", list(labels), format_func=lambda k: labels[k], key="hist_pick")
+    d = next(x for x in hist if x["id"] == pick)
+    vid = RUNS / pick / "output.mp4"
+    if vid.exists():
+        st.video(str(vid))
+        st.download_button("⬇️ Video kana buusi", vid.read_bytes(), file_name=f"{pick}.mp4",
+                           mime="video/mp4", use_container_width=True, key="hist_dl")
+    else:
+        st.caption("Video kun hin jiru (haqameera).")
+    if d.get("meta"):
+        st.code(d["meta"], language=None)
+    with st.expander("📝 Script"):
+        st.code(d.get("script", ""), language=None)
+
+    def _restore(script, meta):
+        ss["script"], ss["meta"] = script, meta
+
+    c1, c2, c3 = st.columns(3)
+    c1.button("↩️ Script fayyadami", on_click=_restore, args=(d.get("script", ""), d.get("meta", "")),
+              use_container_width=True)
+    if c2.button("📨 Telegram'tti ergi", use_container_width=True, key="hist_tg"):
+        if ss.get("tg_token", "").strip() and ss.get("tg_chat", "").strip():
+            tg_send(vid, d.get("title", ""), d.get("script", ""), d.get("meta", ""))
+        else:
+            st.warning("Telegram token fi Chat ID olitti galchi.")
+    if c3.button("🗑 Haqi", use_container_width=True, key="hist_del"):
+        shutil.rmtree(RUNS / pick, ignore_errors=True)
+        st.rerun()

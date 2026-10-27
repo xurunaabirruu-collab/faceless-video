@@ -18,6 +18,8 @@ STYLES = {
     "Did You Know / Facts": "Surprising, TRUE facts. Open with a hook question. One fact per scene.",
     "Motivational": "Short, powerful motivational talk. Emotional, direct, builds to a strong ending.",
     "Story": "A short story with a clear beginning, middle and end. Each scene moves the story forward.",
+    "Dark-comedy 3D story (Zack D. style)": "Fast, punchy dark-humor mini story or 'what if' scenario. "
+        "Very short sentences (8 to 16 words), a strong hook, escalating twists, an ironic ending.",
     "Educational explainer": "Clear step-by-step explanation of the topic for beginners, with simple examples.",
 }
 
@@ -69,6 +71,11 @@ After the last scene, add a line containing only ###META and then exactly these 
 TITLE: <catchy title under 70 characters>
 DESCRIPTION: <2 to 3 sentences>
 HASHTAGS: <8 to 12 hashtags separated by spaces>"""
+    if style.startswith("Dark-comedy"):
+        system += ("\n\nSTORY MODE: each VISUAL PROMPT must describe a stylized 3D animated character "
+                   "(Pixar-like) doing one specific action, with a dynamic camera "
+                   "(low angle, tracking shot, close up). Reuse the same main character in every scene. "
+                   "Keep the narration to 8 to 16 words per scene and use 10 to 12 scenes if allowed.")
     user = f"Topic / request: {topic}\nStyle: {STYLES.get(style, style)}\nNumber of scenes: {scenes}"
     return system, user
 
